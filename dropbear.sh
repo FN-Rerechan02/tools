@@ -1,82 +1,104 @@
 #!/usr/bin/env bash
-# One-Click Dropbear 2019 Installer by Rerechan02
-
-set -e
-
-# Warna
-BIWhite='\033[1;97m'
-BIGreen='\033[1;92m'
-BIRed='\033[1;91m'
-BIYellow='\033[1;93m'
-NC='\033[0m'
-
-DROPBEAR_VERSION="2019.78"
-DROPBEAR_URL="https://matt.ucc.asn.au/dropbear/releases"
-DROPBEAR_BIN="/usr/sbin/dropbear"
-DROPBEAR_LIB="/usr/lib/dropbear"
-DROPBEAR_CONFIG="/etc/dropbear"
-DROPBEAR_MAN="/usr/share/man/man8/dropbear.8.gz"
 
 clear
-echo -e "${BIWhite}──────────────────────────────────────────${NC}"
-echo -e "${BIWhite}🚀 One-Click Dropbear Installer - v$DROPBEAR_VERSION${NC}"
-echo -e "${BIWhite}──────────────────────────────────────────${NC}"
+DROPBEAR_VERSION="2019.78"
+DROPBEAR_URL="https://matt.ucc.asn.au/dropbear/releases/dropbear-$DROPBEAR_VERSION.tar.bz2"
 
-# Stop Dropbear jika ada
-systemctl stop dropbear 2>/dev/null || service dropbear stop 2>/dev/null
+DROPBEAR_BIN="/usr/sbin/dropbear"
+DROPBEAR_CONFIG="/etc/dropbear"
 
-# Backup dan bersih
-[ -f "$DROPBEAR_BIN" ] && cp $DROPBEAR_BIN "${DROPBEAR_BIN}.bak"
-rm -f $DROPBEAR_BIN 2>/dev/null
-rm -rf $DROPBEAR_LIB/* $DROPBEAR_CONFIG/* $DROPBEAR_MAN 2>/dev/null
+echo "===================================="
+echo " INSTALL DROPBEAR $DROPBEAR_VERSION "
+echo "===================================="
+echo ""
 
-# Install dependensi
-echo -e "${BIGreen}🔧 Menginstall dependensi...${NC}"
-if [ -f "/etc/debian_version" ]; then
-  apt update -y
-  apt install -y build-essential zlib1g-dev wget
-else
-  yum groupinstall "Development Tools" -y
-  yum install -y zlib-devel wget
+# stop service jika ada
+systemctl stop dropbear 2>/dev/null
+service dropbear stop 2>/dev/null
+
+# backup binary jika ada
+if [ -f "$DROPBEAR_BIN" ]; then
+    echo "Backup dropbear lama..."
+    cp $DROPBEAR_BIN /usr/sbin/dropbear.bak
 fi
 
-# Unduh dan kompilasi
-echo -e "${BIGreen}⬇️ Mengunduh Dropbear v$DROPBEAR_VERSION...${NC}"
-wget --no-check-certificate -O dropbear.tar.bz2 "$DROPBEAR_URL/dropbear-$DROPBEAR_VERSION.tar.bz2"
+# hapus install lama
+rm -rf /usr/sbin/dropbear
+rm -rf /usr/bin/dropbear*
+rm -rf /usr/local/sbin/dropbear*
+rm -rf /usr/local/bin/dropbear*
 
-echo -e "${BIGreen}📦 Mengekstrak dan mengkompilasi...${NC}"
-tar -xjf dropbear.tar.bz2
-cd "dropbear-$DROPBEAR_VERSION"
+mkdir -p $DROPBEAR_CONFIG
+
+echo ""
+echo "Install dependency..."
+
+if command -v apt-get >/dev/null; then
+    apt-get update -y
+    apt-get install -y build-essential zlib1g-dev wget
+elif command -v yum >/dev/null; then
+    yum groupinstall "Development Tools" -y
+    yum install -y zlib-devel wget
+fi
+
+echo ""
+echo "Download Dropbear $DROPBEAR_VERSION..."
+
+cd /usr/src || exit
+rm -rf dropbear*
+
+wget --no-check-certificate $DROPBEAR_URL
+
+if [ ! -f "dropbear-$DROPBEAR_VERSION.tar.bz2" ]; then
+    echo "Download gagal"
+    exit 1
+fi
+
+echo ""
+echo "Extract source..."
+
+tar -xjf dropbear-$DROPBEAR_VERSION.tar.bz2
+cd dropbear-$DROPBEAR_VERSION || exit
+
+echo ""
+echo "Compile dropbear..."
+
 ./configure --prefix=/usr
-make && make install
+make
+make install
 
-# Installasi binary
-echo -e "${BIGreen}✅ Instalasi selesai, menyalin binary...${NC}"
-mv /usr/bin/dropbear $DROPBEAR_BIN
-mkdir -p $DROPBEAR_LIB $DROPBEAR_CONFIG
-[ -f "/usr/share/man/man8/dropbear.8.gz" ] && mv /usr/share/man/man8/dropbear.8.gz $DROPBEAR_MAN
+# pindahkan binary ke sbin
+if [ -f "/usr/bin/dropbear" ]; then
+    mv /usr/bin/dropbear /usr/sbin/dropbear
+fi
 
-# Buat key baru
-echo -e "${BIGreen}🔑 Membuat ulang host key...${NC}"
-rm -f $DROPBEAR_CONFIG/dropbear_*_host_key
+chmod +x /usr/sbin/dropbear
+
+echo ""
+echo "Generate host key..."
+
+rm -f $DROPBEAR_CONFIG/*
+
 dropbearkey -t rsa -f $DROPBEAR_CONFIG/dropbear_rsa_host_key
 dropbearkey -t dss -f $DROPBEAR_CONFIG/dropbear_dss_host_key
 dropbearkey -t ecdsa -f $DROPBEAR_CONFIG/dropbear_ecdsa_host_key
 
-chmod 600 $DROPBEAR_CONFIG/dropbear_*_host_key
+chmod 600 $DROPBEAR_CONFIG/*
 
-# Jalankan ulang Dropbear
-echo -e "${BIGreen}🚀 Menjalankan Dropbear...${NC}"
-systemctl start dropbear 2>/dev/null || service dropbear start 2>/dev/null
+echo ""
+echo "Start service..."
 
-# Cek versi
-echo -e "${BIGreen}📋 Verifikasi versi:${NC}"
-$DROPBEAR_BIN -V || echo -e "${BIRed}⚠️ Gagal verifikasi versi!${NC}"
+if command -v systemctl >/dev/null; then
+    systemctl restart dropbear 2>/dev/null
+else
+    service dropbear restart 2>/dev/null
+fi
 
-# Bersih-bersih
-cd ..
-rm -rf dropbear.tar.bz2 "dropbear-$DROPBEAR_VERSION"
+echo ""
+echo "Installed version:"
+dropbear -V
 
-echo -e "${BIWhite}──────────────────────────────────────────${NC}"
-echo -e "${BIGreen}🎉 Dropbear v$DROPBEAR_VERSION berhasil diinstall!${NC}"
-echo -e "${BIWhite}──────────────────────────────────────────${NC}"
+echo ""
+echo "===================================="
+echo " DROPBEAR $DROPBEAR_VERSION INSTALLED "
+echo "===================================="
